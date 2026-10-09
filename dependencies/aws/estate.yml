@@ -1,0 +1,37 @@
+# Standing objects the pinned aws-terraform-framework consumes but never creates: it takes
+# pre-created security groups by id (its docs/reference/invariants.md), and Elastic Load Balancing
+# needs its service-linked role before a first create. Both are free while unused, so they stand
+# between runs and the deploy only references them. scripts/apply-dependencies.sh creates and
+# reconciles them; the runner can neither modify nor delete them, because none carries the deploy
+# identity.
+#
+# Reachability is by membership, not by address: every node carries rancher-node, and the network
+# load balancer admits only that group, so nothing else in a shared subnet reaches the cluster's
+# ingress, registration or API ports through it. The nodes' own rules -- node to node, and from the
+# load balancer -- are run-scoped and live in terraform/aws.tfvars.
+schema: aws-estate/v1
+tags:
+  ManagedBy: "apply-dependencies"
+  Repository: "nwarila-platform/rancher"
+aws_managed_keys: []
+service_linked_roles:
+  - "elasticloadbalancing.amazonaws.com"
+db_subnet_groups: []
+security_groups:
+  - name: "rancher-nlb"
+    description: "Rancher internal NLB: ingress, registration and API between the Rancher nodes"
+    ingress:
+      - { description: "HTTP from the Rancher nodes", protocol: "tcp", port: 80, source: "rancher-node" }
+      - { description: "HTTPS from the Rancher nodes", protocol: "tcp", port: 443, source: "rancher-node" }
+      - { description: "Kubernetes API from the Rancher nodes", protocol: "tcp", port: 6443, source: "rancher-node" }
+      - { description: "RKE2 registration from the Rancher nodes", protocol: "tcp", port: 9345, source: "rancher-node" }
+    egress:
+      - { description: "HTTP to the Rancher nodes", protocol: "tcp", port: 80, source: "rancher-node" }
+      - { description: "HTTPS to the Rancher nodes", protocol: "tcp", port: 443, source: "rancher-node" }
+      - { description: "Kubernetes API to the Rancher servers", protocol: "tcp", port: 6443, source: "rancher-node" }
+      - { description: "RKE2 registration to the Rancher servers", protocol: "tcp", port: 9345, source: "rancher-node" }
+  # Membership only: the nodes' own run-scoped rules live in terraform/aws.tfvars.
+  - name: "rancher-node"
+    description: "Rancher nodes: membership the NLB admits"
+    ingress: []
+    egress: []

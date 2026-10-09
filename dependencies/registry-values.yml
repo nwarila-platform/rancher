@@ -1,0 +1,5 @@
+# LOCAL-FIRST SHIM — delete this one file when the org registry exists.
+# Declaration files keep their registry:// references unchanged; every value carries evidence.
+# No declaration references a registry URI yet (aws/artifacts.yml declares nothing), so the
+# resolver is empty: it holds only values a machine declaration genuinely uses.
+{}

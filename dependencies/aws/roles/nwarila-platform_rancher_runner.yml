@@ -1,0 +1,18 @@
+schema: aws-role/v1
+name: "nwarila-platform_rancher_runner"
+session_seconds: 7800
+trust: "nwarila-platform_rancher_runner.trust.json"
+attach:
+  - "nwarila-platform_rancher_runner_ebs"
+  - "nwarila-platform_rancher_runner_ec2"
+  - "nwarila-platform_rancher_runner_elb"
+  - "nwarila-platform_rancher_runner_eni"
+  - "nwarila-platform_rancher_runner_iam"
+  - "nwarila-platform_rancher_runner_kms"
+  - "nwarila-platform_rancher_runner_s3"
+  - "nwarila-platform_rancher_runner_sg"
+  - "nwarila-platform_rancher_runner_ssm"
+managed_attach: []
+path: /
+description: null
+managed_by: consumer

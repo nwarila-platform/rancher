@@ -1,0 +1,8 @@
+# This file declares consumption; IAM policy documents declare authorization.
+# The RKE2 stack reads no S3 object today: its RPMs come from rpm.rancher.io over the nodes' own
+# HTTPS egress, and the cluster join token is generated on the controller. A later chunk that
+# reads an object declares it here and grants it by exact path in runner_s3.
+schema: aws-artifacts/v1
+artifacts: []
+# Secret values are never pinned by digest here: rotating one is an upload, not a commit.
+secrets: []

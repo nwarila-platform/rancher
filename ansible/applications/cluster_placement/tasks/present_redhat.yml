@@ -1,0 +1,154 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/present_redhat.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# The management/worker split, from one RKE2 server: label both pools, create this repository's
+# namespaces with the placement annotations the API server enforces, move anything of ours still
+# on a worker, and prove nothing of ours is left there.
+#
+# ============================================================================================= #
+---
+
+#region ------ [ Process: Label The Pools ] --------------------------------------------------- #
+
+- name: 'PROCESS | Label The Pools'
+  block:
+
+    - name: 'PROCESS | Label Each Node With Its Pool'
+      changed_when: "'not labeled' not in __placement_label__.stdout"
+      register: '__placement_label__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'label'
+          - 'node'
+          - "{{ item.node }}"
+          - "{{ config.pool_label }}={{ item.pool }}"
+          - '--overwrite'
+      loop: >-
+        {{ config.management_nodes | map('community.general.dict_kv', 'node')
+           | map('combine', {'pool': config.management_pool}) | list
+           + config.worker_nodes | map('community.general.dict_kv', 'node')
+           | map('combine', {'pool': config.worker_pool}) | list }}
+      loop_control:
+        label: "{{ item.node }}={{ item.pool }}"
+
+#endregion --- [ Process: Label The Pools ] --------------------------------------------------- #
+
+#region ------ [ Process: Platform Namespaces ] ----------------------------------------------- #
+
+- name: 'PROCESS | Create The Platform Namespaces'
+  block:
+
+    - name: 'PROCESS | Apply The Platform Namespaces'
+      changed_when: "__placement_ns__.stdout_lines | reject('search', ' unchanged$') | list | length > 0"
+      register: '__placement_ns__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'apply'
+          - '--filename=-'
+        stdin: "{{ lookup('ansible.builtin.template', 'platform-namespaces.yaml.j2') }}"
+
+    # RKE2's add-ons and the CNI tolerate the management taint; kube-system is ours by definition.
+    - name: 'PROCESS | Mark kube-system As A Platform Namespace'
+      changed_when: "'not labeled' not in __placement_ks__.stdout"
+      register: '__placement_ks__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'label'
+          - 'namespace'
+          - 'kube-system'
+          - "{{ config.platform_label }}=true"
+          - '--overwrite'
+
+    - name: 'PROCESS | Keep Applications Off The Management Nodes'
+      changed_when: "__placement_vap__.stdout_lines | reject('search', ' unchanged$') | list | length > 0"
+      register: '__placement_vap__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'apply'
+          - '--filename=-'
+        stdin: "{{ lookup('ansible.builtin.template', 'application-placement-policy.yaml.j2') }}"
+
+#endregion --- [ Process: Platform Namespaces ] ----------------------------------------------- #
+
+#region ------ [ Process: Move Our Workloads Off The Workers ] -------------------------------- #
+# A cluster built before this role ran has our pods on the workers. Annotations place only new
+# pods, so each namespace still holding one has its Deployments restarted, which rolls them one
+# replica at a time onto the management nodes. On a cluster this role built, nothing matches.
+
+- name: 'PROCESS | Move Our Workloads Off The Workers'
+  vars:
+    __workers__: "{{ config.worker_nodes }}"
+  block:
+
+    - name: 'BEGIN | Read Where Our Pods Run'
+      changed_when: false
+      register: '__placement_pods__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'get'
+          - 'pods'
+          - '--all-namespaces'
+          - '--field-selector=status.phase=Running'
+          - "--output=jsonpath={range .items[*]}{.metadata.namespace} {.spec.nodeName}{'\\n'}{end}"
+
+    - name: 'PROCESS | Restart Our Deployments Still On A Worker'
+      changed_when: true
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ item }}"
+          - 'rollout'
+          - 'restart'
+          - 'deployment'
+      loop: >-
+        {{ __placement_pods__.stdout_lines | map('split', ' ')
+           | selectattr('1', 'in', __workers__) | map(attribute='0')
+           | select('in', config.platform_namespaces) | unique | sort }}
+
+#endregion --- [ Process: Move Our Workloads Off The Workers ] -------------------------------- #
+
+#region ------ [ End: Prove The Split ] ------------------------------------------------------- #
+
+- name: 'END | Prove The Split'
+  block:
+
+    # measured: 2026-10-09 -- a rolled Deployment settles on the management nodes in minutes.
+    - name: 'END | Require Nothing Of Ours On A Worker'
+      changed_when: false
+      register: '__placement_proof__'
+      retries: 40
+      delay: 15
+      # Ours: any pod in a platform namespace, and RKE2's own Deployments in kube-system. The
+      # kube-system DaemonSets (the CNI, Traefik is pinned instead) run on every node by design.
+      until: >-
+        __placement_proof__.stdout_lines
+        | select('match', '^(' ~ (config.platform_namespaces | join('|')) ~ ') ('
+                 ~ (config.worker_nodes | join('|')) ~ ') ')
+        | list
+        + __placement_proof__.stdout_lines
+        | select('match', '^kube-system (' ~ (config.worker_nodes | join('|')) ~ ') ReplicaSet$')
+        | list
+        == []
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'get'
+          - 'pods'
+          - '--all-namespaces'
+          - '--field-selector=status.phase=Running'
+          - "--output=jsonpath={range .items[*]}{.metadata.namespace} {.spec.nodeName} {.metadata.ownerReferences[0].kind}{'\\n'}{end}"
+
+#endregion --- [ End: Prove The Split ] ------------------------------------------------------- #

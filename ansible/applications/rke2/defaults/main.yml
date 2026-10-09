@@ -36,6 +36,9 @@ rke2_defaults:
   # Servers carry this so only critical add-ons schedule there: the control plane stays apart
   # from Rancher and anything else the agents run.
   server_taints: ['CriticalAddonsOnly=true:NoExecute']
+  # The servers' pool label; RKE2's own Deployments and Traefik are pinned to it, so what this
+  # repository deploys runs on the management nodes (the cluster_placement role labels the nodes).
+  management_selector: {'nwarila.io/pool': 'management'}
   #endregion --- [ Node ] --------------------------------------------------------------------- #
 
   #region ------ [ Layout ] ------------------------------------------------------------------- #
@@ -44,6 +47,11 @@ rke2_defaults:
   #endregion --- [ Layout ] ------------------------------------------------------------------- #
 
   #region ------ [ STIG ] --------------------------------------------------------------------- #
+  # NodeRestriction is RKE2's default; the two placement plugins apply the management pool's
+  # selector and toleration to every pod in a namespace annotated for it.
+  admission_plugins: ['NodeRestriction', 'PodNodeSelector', 'PodTolerationRestriction']
+  # CNTR-R2-000550: components nothing here uses -- volume snapshots.
+  disabled_components: ['rke2-snapshot-controller', 'rke2-snapshot-controller-crd', 'rke2-snapshot-validation-webhook']
   # CNTR-R2-000010: the control plane speaks TLS 1.2+ with exactly these suites.
   tls_cipher_suites:
     - 'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256'

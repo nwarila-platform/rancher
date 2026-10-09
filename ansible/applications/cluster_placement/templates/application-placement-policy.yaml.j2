@@ -1,0 +1,44 @@
+# Managed by the cluster_placement role. Outside this repository's namespaces, a pod may not
+# tolerate the management taint -- by its key, or by a keyless Exists that tolerates every taint --
+# so an application can never schedule onto the management nodes, whatever it asks for.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: applications-run-on-workers
+spec:
+  failurePolicy: Fail
+  # The API server's defaults are stated, so the declaration equals what it stores and a
+  # re-apply changes nothing.
+  matchConstraints:
+    matchPolicy: Equivalent
+    namespaceSelector: {}
+    objectSelector: {}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: "*"
+  validations:
+    - expression: >-
+        !has(object.spec.tolerations) ||
+        !object.spec.tolerations.exists(t,
+          (has(t.key) && t.key == '{{ config.management_taint_key }}') ||
+          ((!has(t.key) || t.key == '') && has(t.operator) && t.operator == 'Exists'))
+      message: >-
+        Applications run on the worker nodes: a pod outside this platform's namespaces may not
+        tolerate the {{ config.management_taint_key }} taint that reserves the management nodes.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: applications-run-on-workers
+spec:
+  policyName: applications-run-on-workers
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: {{ config.platform_label }}
+          operator: NotIn
+          values: ["true"]

@@ -1,0 +1,15 @@
+# Managed by the cluster_placement role. Every pod in these namespaces is placed on the
+# management nodes by the API server: PodNodeSelector adds the pool selector, and
+# PodTolerationRestriction adds the toleration the management taint requires.
+{% for ns in config.platform_namespaces %}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ ns }}
+  labels:
+    {{ config.platform_label }}: "true"
+  annotations:
+    scheduler.alpha.kubernetes.io/node-selector: "{{ config.pool_label }}={{ config.management_pool }}"
+    scheduler.alpha.kubernetes.io/defaultTolerations: '[{"key": "{{ config.management_taint_key }}", "operator": "Exists"}]'
+{% endfor %}

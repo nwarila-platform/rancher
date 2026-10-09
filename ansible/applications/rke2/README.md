@@ -38,6 +38,14 @@ Everything else is in `defaults/main.yml`, each value with its reason.
 | CNTR-R2-000160 / 000320 / 001270 | API server `anonymous-auth=false`, `audit-log-maxage=30`, `authorization-mode=RBAC,Node` |
 | CNTR-R2-000520 | `/etc/rancher/rke2/*` 0600 root; `write-kubeconfig-mode: 0600`; once RKE2 is up, its binaries and `data/`, `server/manifests`, `server/logs` restricted to 0750 and `agent/etc`, `agent/pod-manifests` to 0700 (RKE2 creates them 0755) |
 | CNTR-R2-001130 | Pod Security Admission restricted by default; exemptions are Rancher's published list |
+| CNTR-R2-000550 | the unused volume-snapshot components are disabled |
+
+## Placement
+
+The servers carry `CriticalAddonsOnly=true:NoExecute`. The API server also enables
+`PodNodeSelector` and `PodTolerationRestriction` beside NodeRestriction, and RKE2's own Deployments
+(CoreDNS, metrics-server) and Traefik are pinned to the management pool through a `HelmChartConfig`
+the role writes on each server. The `cluster_placement` role labels the pools and enforces the split.
 
 ## CIS RHEL 9 STIG image constraints (measured 2026-10-09)
 

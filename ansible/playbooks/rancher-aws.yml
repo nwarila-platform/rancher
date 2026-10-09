@@ -154,6 +154,24 @@
 
 #endregion --- [ Play: RKE2 ] ----------------------------------------------------------------- #
 
+#region ------ [ Play: Placement ] ------------------------------------------------------------ #
+# What this repository deploys runs on the management nodes (the servers); applications deployed
+# from elsewhere run on the workers (the agents). Before Rancher, so its namespaces exist already
+# annotated and its pods land on the management nodes from the first.
+
+- name: 'PLAY | Placement'
+  hosts: 'rancher_servers[0]'
+  become: true
+  tags: ['products']
+  roles:
+    - role: 'cluster_placement'
+      vars:
+        cluster_placement:
+          management_nodes: "{{ groups['rancher_servers'] }}"
+          worker_nodes: "{{ groups['rancher_agents'] }}"
+
+#endregion --- [ Play: Placement ] ------------------------------------------------------------ #
+
 #region ------ [ Play: Rancher ] -------------------------------------------------------------- #
 # Rancher Manager on the cluster, from the server that initialized it: the role hands RKE2's
 # helm-controller a HelmChart and waits for Rancher to answer through the load balancer.

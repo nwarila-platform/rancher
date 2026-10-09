@@ -7,8 +7,9 @@ input that shapes them.
 - `aws.tfvars` — the system declaration consumed verbatim by the framework: three RKE2 servers
   (`Function = "rancher-server"`) and three RKE2 agents (`Function = "rancher-agent"`), one of each
   per availability zone (us-east-1a/b/c), on the CIS RHEL 9 STIG image, plus one internal network
-  load balancer. Its listeners forward 80 and 443 to the agents, where the ingress controller runs,
-  and 6443 and 9345 to the servers. Each node carries a 50 GiB data volume
+  load balancer whose listeners all forward to the servers: 80 and 443 to the ingress controller,
+  6443 and 9345 to the API and registration. What this repository deploys runs on the servers;
+  applications deployed from elsewhere run on the agents. Each node carries a 50 GiB data volume
   (`Function = "rancher-data"`) the playbook mounts at `/var/lib/rancher`, because the image's
   `/var` is 10 GiB. The OS instances are not swap-eligible (`refresh = false`).
 - The framework SHA is pinned in `.github/terraform-framework-pin`.

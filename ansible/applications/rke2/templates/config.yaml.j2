@@ -18,7 +18,9 @@ write-kubeconfig-mode: '0600'               # CNTR-R2-000520
 tls-san: {{ config.tls_san | to_json }}
 node-taint: {{ config.server_taints | to_json }}
 pod-security-admission-config-file: '{{ config.config_dir }}/rke2-pss-custom.yaml'  # CNTR-R2-001130
+disable: {{ config.disabled_components | to_json }}                                  # CNTR-R2-000550
 kube-apiserver-arg:
+  - 'enable-admission-plugins={{ config.admission_plugins | join(",") }}'
   - 'tls-min-version=VersionTLS12'          # CNTR-R2-000010
   - 'tls-cipher-suites={{ config.tls_cipher_suites | join(",") }}'
   - 'audit-policy-file={{ config.config_dir }}/audit-policy.yaml'  # CNTR-R2-000060

@@ -1,0 +1,45 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/defaults/main.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Defaults for the cluster_placement role, merged by the v3 loader into cluster_placement_running
+# (tasks see it as config). The node lists come from the playbook's inventory groups.
+#
+# The rule: what this repository deploys runs on the management nodes (the RKE2 servers); what is
+# deployed from outside it runs on the workers (the agents).
+#
+# ============================================================================================= #
+---
+cluster_placement_defaults:
+
+  # The node label naming each pool, and its two values.
+  pool_label: 'nwarila.io/pool'
+  management_pool: 'management'
+  worker_pool: 'workers'
+  # Inventory hostnames of each pool; node names equal them (the rke2 role's node-name).
+  management_nodes: []
+  worker_nodes: []
+  # The taint the servers carry; a platform pod tolerates it, an application pod does not.
+  management_taint_key: 'CriticalAddonsOnly'
+  # Marks a namespace as this repository's: only there may a pod tolerate the management taint.
+  # kube-system carries it too, because RKE2's add-ons and the CNI do.
+  platform_label: 'nwarila.io/platform'
+  # Namespaces this repository's stack owns: Rancher's and Fleet's. Created here, annotated, before
+  # Rancher starts, so its pods land on the management nodes from the first.
+  platform_namespaces:
+    - 'cattle-capi-system'
+    - 'cattle-fleet-clusters-system'
+    - 'cattle-fleet-local-system'
+    - 'cattle-fleet-system'
+    - 'cattle-global-data'
+    - 'cattle-impersonation-system'
+    - 'cattle-local-user-passwords'
+    - 'cattle-system'
+    - 'cattle-turtles-system'
+    - 'cattle-ui-plugin-system'
+    - 'fleet-default'
+    - 'fleet-local'
+    - 'local'
+
+  kubectl: '/var/lib/rancher/rke2/bin/kubectl'
+  kubeconfig: '/etc/rancher/rke2/rke2.yaml'

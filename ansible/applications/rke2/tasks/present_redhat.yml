@@ -315,6 +315,21 @@
 
 #endregion --- [ Process: Restrict The RKE2 Tree ] -------------------------------------------- #
 
+#region ------ [ Process: Place RKE2's Add-ons ] ---------------------------------------------- #
+
+- name: 'PROCESS | Pin RKE2 Add-ons To The Management Pool'
+  when: config.node_role == 'server'
+  ansible.builtin.template:
+    backup: false
+    dest: "{{ config.data_dir }}/server/manifests/rke2-placement.yaml"
+    force: true
+    group: 'root'
+    mode: '0600'
+    owner: 'root'
+    src: 'rke2-placement.yaml.j2'
+
+#endregion --- [ Process: Place RKE2's Add-ons ] ---------------------------------------------- #
+
 #region ------ [ End: Prove The Node ] -------------------------------------------------------- #
 
 - name: 'END | Prove The Node'

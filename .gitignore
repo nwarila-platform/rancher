@@ -20,6 +20,12 @@
 !/.github/workflows/
 !/ansible/
 !/ansible/applications/
+!/ansible/applications/cluster_placement/
+!/ansible/applications/cluster_placement/defaults/
+!/ansible/applications/cluster_placement/meta/
+!/ansible/applications/cluster_placement/tasks/
+!/ansible/applications/cluster_placement/templates/
+!/ansible/applications/cluster_placement/vars/
 !/ansible/applications/rancher/
 !/ansible/applications/rancher/defaults/
 !/ansible/applications/rancher/meta/
@@ -65,6 +71,15 @@
 !/.github/workflows/quality.yml
 
 # --- [ allowed: the ansible tree ] ---------------------------------------------------------- #
+!/ansible/applications/cluster_placement/README.md
+!/ansible/applications/cluster_placement/defaults/main.yml
+!/ansible/applications/cluster_placement/meta/main.yml
+!/ansible/applications/cluster_placement/tasks/main.yml
+!/ansible/applications/cluster_placement/tasks/present_redhat.yml
+!/ansible/applications/cluster_placement/tasks/validate.yml
+!/ansible/applications/cluster_placement/templates/application-placement-policy.yaml.j2
+!/ansible/applications/cluster_placement/templates/platform-namespaces.yaml.j2
+!/ansible/applications/cluster_placement/vars/redhat.yml
 !/ansible/applications/rancher/README.md
 !/ansible/applications/rancher/defaults/main.yml
 !/ansible/applications/rancher/meta/main.yml
@@ -82,6 +97,7 @@
 !/ansible/applications/rke2/tasks/validate.yml
 !/ansible/applications/rke2/templates/audit-policy.yaml.j2
 !/ansible/applications/rke2/templates/config.yaml.j2
+!/ansible/applications/rke2/templates/rke2-placement.yaml.j2
 !/ansible/applications/rke2/templates/rke2-pss-custom.yaml.j2
 !/ansible/applications/rke2/vars/redhat.yml
 !/ansible/inventory/README.md

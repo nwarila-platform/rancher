@@ -1,0 +1,20 @@
+# Managed by the rke2 role; RKE2 applies it. RKE2's own Deployments and its ingress controller are
+# part of what this repository deploys, so they run on the management nodes. kube-system itself
+# carries no placement annotation: the CNI DaemonSet must run on every node.
+{% for chart in ['rke2-coredns', 'rke2-metrics-server', 'rke2-traefik'] %}
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: {{ chart }}
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    nodeSelector: {{ ({'kubernetes.io/os': 'linux'} | combine(config.management_selector)) | to_json }}
+    tolerations: [{"key": "CriticalAddonsOnly", "operator": "Exists"}]
+{% if chart == 'rke2-coredns' %}
+    autoscaler:
+      nodeSelector: {{ ({'kubernetes.io/os': 'linux'} | combine(config.management_selector)) | to_json }}
+      tolerations: [{"key": "CriticalAddonsOnly", "operator": "Exists"}]
+{% endif %}
+{% endfor %}

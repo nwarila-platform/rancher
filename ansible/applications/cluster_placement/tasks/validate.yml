@@ -1,0 +1,17 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/validate.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Guards on the merged configuration, run by the loader before any task file.
+#
+# ============================================================================================= #
+---
+- name: 'VALIDATE | Require Both Pools'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: 'cluster_placement.management_nodes and worker_nodes must each name at least one node.'
+    quiet: true
+    that:
+      - config.management_nodes | length > 0
+      - config.worker_nodes | length > 0
+      - config.management_nodes | intersect(config.worker_nodes) | length == 0

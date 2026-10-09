@@ -8,8 +8,9 @@
 # ansible-framework plus this repository's roles.
 #
 # THE STACK — three RKE2 servers (etcd and control plane) and three RKE2 agents, one of each per
-# availability zone, behind one internal network load balancer: 80 and 443 reach the agents, where
-# the ingress controller runs; 6443 and 9345 reach the servers. Each node carries a 50 GiB data
+# availability zone, behind one internal network load balancer whose four listeners all reach the
+# servers: 80 and 443 the ingress controller, 6443 and 9345 the API and registration. What this
+# repository deploys runs on the servers; applications deployed from elsewhere run on the agents. Each node carries a 50 GiB data
 # volume the playbook mounts at /var/lib/rancher, because the image's /var is 10 GiB.
 #
 # REACHABILITY — DIRECT SSH OVER A PUBLIC IPv4, as in every fleet repository: the framework's
@@ -1067,7 +1068,7 @@ all_load_balancers = [
     target_groups                                                = [
       {
         resource_key                      = "http"
-        function                          = "rancher-agent"
+        function                          = "rancher-server"
         vpc_id                            = "vpc-0724440de2891a1ee"
         port                              = 80
         protocol                          = "TCP"
@@ -1098,7 +1099,7 @@ all_load_balancers = [
       },
       {
         resource_key                      = "https"
-        function                          = "rancher-agent"
+        function                          = "rancher-server"
         vpc_id                            = "vpc-0724440de2891a1ee"
         port                              = 443
         protocol                          = "TCP"

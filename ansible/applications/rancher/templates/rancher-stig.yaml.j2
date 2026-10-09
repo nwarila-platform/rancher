@@ -1,0 +1,46 @@
+# Managed by the rancher role; RKE2 applies it. RGS Rancher Multi-Cluster Manager STIG V-252849.
+#
+# Traefik speaks TLS to Rancher on 443. Rancher's backend certificate comes from its own rotating
+# internal CA, which Traefik can read only from a ca.crt key Rancher does not write; verification
+# is therefore skipped for this one backend. The hop stays encrypted, as with the STIG's NGINX
+# fix (backend-protocol HTTPS), which does not verify either.
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: rancher-backend
+  namespace: {{ config.namespace }}
+  annotations:
+    kubernetes.io/ingress.class: {{ config.ingress_class }}
+spec:
+  insecureSkipVerify: true
+---
+# Rancher's pods admit TLS only. The STIG names 444 alone; Rancher 2.15 also serves the ingress
+# backend on 443 (Service rancher 443->443) and the ext.cattle.io APIService on 6666, both TLS.
+# Port 80, the one plain-HTTP listener, is denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rancher-allow-https
+  namespace: {{ config.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: rancher
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+{% for port in config.tls_ports %}
+        - port: {{ port }}
+          protocol: TCP
+{% endfor %}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rancher-deny-ingress
+  namespace: {{ config.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: rancher
+  policyTypes: ["Ingress"]

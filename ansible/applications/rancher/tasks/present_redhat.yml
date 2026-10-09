@@ -94,15 +94,104 @@
         owner: 'root'
         src: 'rancher-helmchart.yaml.j2'
 
+    - name: 'PROCESS | Hand RKE2 The Rancher Ingress Policy'
+      ansible.builtin.template:
+        backup: false
+        dest: "{{ config.manifests_dir }}/rancher-stig.yaml"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: 'rancher-stig.yaml.j2'
+
+    # measured: 2026-10-09 -- the chart install, image pulls and three replicas take minutes.
+    - name: 'PROCESS | Wait For Every Rancher Replica'
+      changed_when: false
+      register: '__rancher_rollout__'
+      retries: 60
+      delay: 15
+      until: __rancher_rollout__.rc == 0
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ config.namespace }}"
+          - 'rollout'
+          - 'status'
+          - 'deployment/rancher'
+          - '--timeout=10s'
+
 #endregion --- [ Process: Install Rancher ] --------------------------------------------------- #
+
+#region ------ [ Process: New-User Default Role ] -------------------------------------------- #
+# V-252845: a new user receives User-Base, never Standard User. Rancher creates both global roles
+# at its first start, with Standard User as the default.
+
+- name: 'PROCESS | Set The New-User Default Role'
+  block:
+
+    - name: 'PROCESS | Make The Least Role The New-User Default'
+      changed_when: "'(no change)' not in __rancher_role__.stdout"
+      register: '__rancher_role__'
+      retries: 20
+      delay: 15
+      until: __rancher_role__.rc == 0
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - 'patch'
+          - 'globalrole'
+          - "{{ item.role }}"
+          - '--type=merge'
+          - "--patch={{ {'newUserDefault': item.default} | to_json }}"
+      loop:
+        - { role: "{{ config.new_user_default_role }}", default: true }
+        - { role: "{{ config.not_new_user_default_role }}", default: false }
+      loop_control:
+        label: "{{ item.role }}={{ item.default }}"
+
+#endregion --- [ Process: New-User Default Role ] -------------------------------------------- #
 
 #region ------ [ End: Prove Rancher ] --------------------------------------------------------- #
 
 - name: 'END | Prove Rancher'
   block:
 
-    # measured: 2026-10-09 -- the chart install, image pulls and three replicas take minutes.
-    - name: 'END | Wait For Every Rancher Replica'
+    # V-252849, as its check reads it: the ingress backend is 443, and both policies exist.
+    - name: 'END | Read The Rancher Ingress Backend'
+      changed_when: false
+      register: '__rancher_backend__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ config.namespace }}"
+          - 'get'
+          - 'ingress'
+          - 'rancher'
+          - '--output=jsonpath={.spec.rules[0].http.paths[0].backend.service.port.number}'
+      retries: 20
+      delay: 15
+      until: __rancher_backend__.stdout == '443'
+
+    - name: 'END | Require The Rancher Ingress Policies'
+      changed_when: false
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ config.namespace }}"
+          - 'get'
+          - 'networkpolicy'
+          - 'rancher-allow-https'
+          - 'rancher-deny-ingress'
+      register: '__rancher_policies__'
+      retries: 20
+      delay: 15
+      until: __rancher_policies__.rc == 0
+
+    - name: 'END | Wait For Every Rancher Replica After The Policy'
       changed_when: false
       register: '__rancher_rollout__'
       retries: 60

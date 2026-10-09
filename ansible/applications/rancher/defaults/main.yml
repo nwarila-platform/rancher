@@ -36,6 +36,12 @@ rancher_defaults:
   # V-257292: the ingress certificate comes from a secret signed by a private CA, not
   # Rancher's self-signed issuer. The bed's CA is generated here; a DoD-issued certificate
   # replaces it where one exists.
+  # V-252849: the only ports Rancher's pods admit, all TLS -- the ingress backend (443), the
+  # rancher-internal Service (444) and the ext.cattle.io APIService (6666). Port 80 is denied.
+  tls_ports: [443, 444, 6666]
+  # V-252845: the global role a new user receives, and the one it must not.
+  new_user_default_role: 'user-base'
+  not_new_user_default_role: 'user'
   ca_common_name: 'Rancher Private CA'
   certificate_days: 397
   #endregion --- [ STIG ] --------------------------------------------------------------------- #

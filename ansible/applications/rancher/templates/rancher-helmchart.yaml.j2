@@ -17,8 +17,16 @@ spec:
     agentTLSMode: strict
     # V-257292: a private CA's certificate, from the tls-rancher-ingress and tls-ca secrets.
     privateCA: true
+    # V-252849: the ingress reaches Rancher over TLS on 443, never plain HTTP on 80. Traefik takes
+    # its backend transport from rancher-stig.yaml, named on the Service.
+    service:
+      annotations:
+        traefik.ingress.kubernetes.io/service.serverstransport: "{{ config.namespace }}-rancher-backend@kubernetescrd"
     ingress:
       ingressClassName: {{ config.ingress_class | to_json }}
+      servicePort: 443
+      extraAnnotations:
+        traefik.ingress.kubernetes.io/router.tls: "true"
       tls:
         source: secret
     # V-252844

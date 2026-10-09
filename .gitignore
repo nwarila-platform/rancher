@@ -72,6 +72,7 @@
 !/ansible/applications/rancher/tasks/present_redhat.yml
 !/ansible/applications/rancher/tasks/validate.yml
 !/ansible/applications/rancher/templates/rancher-helmchart.yaml.j2
+!/ansible/applications/rancher/templates/rancher-stig.yaml.j2
 !/ansible/applications/rancher/vars/redhat.yml
 !/ansible/applications/rke2/README.md
 !/ansible/applications/rke2/defaults/main.yml

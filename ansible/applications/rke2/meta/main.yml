@@ -1,0 +1,24 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/meta/main.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Role metadata for rke2. defaults/main.yml documents the merged configuration, and
+# tasks/validate.yml enforces its guards.
+#
+# ============================================================================================= #
+---
+galaxy_info:
+  role_name: 'rke2'
+  namespace: 'nwarila_platform'
+  author: 'nwarila-platform'
+  description: >-
+    An RKE2 server or agent on the CIS RHEL 9 STIG image, configured to the RGS RKE2 STIG.
+  license: 'MIT'
+  min_ansible_version: '2.21'
+  platforms:
+    - name: 'EL'
+      versions:
+        - '9'
+  galaxy_tags: ['rhel', 'cis', 'stig', 'rke2', 'kubernetes']
+
+dependencies: []

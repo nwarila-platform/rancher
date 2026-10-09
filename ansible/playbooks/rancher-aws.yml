@@ -1,0 +1,155 @@
+# =========================================================================================== #
+# File: 'ansible/playbooks/rancher-aws.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Brings the EC2 instances from "the API says they exist" to one Rancher management cluster:
+# three RKE2 servers (etcd + control plane, tainted against workloads) and three RKE2 agents
+# across three zones, behind an internal network load balancer, on the CIS RHEL 9 STIG image,
+# with RKE2 configured to its DISA STIG.
+#
+# The inventory decides how each host is reached; credential_resolver decides who logs on.
+#
+# The workflow passes what Terraform built -- the load balancer's DNS name -- as an extra-var,
+# as it does the account and the region, so the play and the stack cannot disagree.
+#
+# =========================================================================================== #
+---
+
+#region ------ [ Play: Inventory Contract ] --------------------------------------------------- #
+
+- name: 'PLAY | Validate The AWS Inventory Contract'
+  hosts: 'localhost'
+  tasks:
+    - name: 'INVENTORY | Require Three Servers And Three Agents'
+      ansible.builtin.assert:
+        fail_msg: >-
+          Refusing to configure: the inventory holds
+          {{ groups['rancher_servers'] | default([]) | length }} server(s) and
+          {{ groups['rancher_agents'] | default([]) | length }} agent(s), not the three of each
+          terraform/aws.tfvars declares.
+        quiet: true
+        that:
+          - groups['rancher_servers'] | default([]) | length == 3
+          - groups['rancher_agents'] | default([]) | length == 3
+
+    - name: 'INVENTORY | Require The AWS Deployment Identity'
+      ansible.builtin.assert:
+        fail_msg: >-
+          aws_account_id and aws_region must be provided as extra-vars.
+        quiet: true
+        that:
+          - aws_account_id is defined
+          - aws_account_id is match('^[0-9]{12}$')
+          - aws_region is defined
+          - aws_region is match('^[a-z]{2}(-[a-z]+)+-[0-9]$')
+
+    - name: 'INVENTORY | Require The Stack Endpoints'
+      ansible.builtin.assert:
+        fail_msg: >-
+          rancher_load_balancer_dns must be provided as an extra-var; the workflow reads it from
+          Terraform's outputs after apply.
+        quiet: true
+        that:
+          - rancher_load_balancer_dns | default('') is match('^[A-Za-z0-9.-]+$')
+
+#endregion --- [ Play: Inventory Contract ] --------------------------------------------------- #
+
+#region ------ [ Play: Configure The Hosts ] -------------------------------------------------- #
+
+- name: 'PLAY | Configure The Hosts'
+  hosts: 'rancher_servers:rancher_agents'
+  any_errors_fatal: true
+
+  roles:
+    - role: 'credential_resolver'
+      tags: ['always']
+      vars:
+        credential_resolver_candidates:
+          - name: 'image-administrator'
+            connection: 'ssh'
+            user: 'ec2-user'
+            private_key_file: >-
+              {{ lookup('ansible.builtin.env', 'CI_PRIVATE_KEY')
+                 | default('~/.ssh/nwarila-ec2-key', true) | expanduser }}
+        credential_resolver_require_elevated: true
+        credential_resolver_wait_pause_seconds: 10
+        credential_resolver_wait_rounds: 60
+
+    - role: 'host_readiness'
+
+  tasks:
+    # RHEL-09-433010/015. The CIS RHEL 9 image ships fapolicyd installed but stopped, and the
+    # bootstrap's venv trust talks to the running daemon: "Open: /run/fapolicyd/fapolicyd.fifo ->
+    # No such file or directory" on every fresh host (measured 2026-10-09).
+    - name: 'PROCESS | Run fapolicyd'
+      become: true
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: 'fapolicyd'
+        state: 'started'
+
+    - name: 'PROCESS | Bootstrap The Host'
+      ansible.builtin.include_role:
+        name: 'os_bootstrap'
+
+    # The image's /var is a 10 GiB volume; RKE2's images and etcd live on their own data disk.
+    - name: 'PROCESS | Mount The RKE2 Data Volume'
+      vars:
+        # The role reads a bare instance_id; this inventory prefixes every plugin variable aws_.
+        instance_id: "{{ aws_instance_id }}"
+        linux_disk_manager:
+          disks:
+            - function: 'rancher-data'
+              label: 'rancher-data'
+              mount_point: '/var/lib/rancher'
+      ansible.builtin.include_role:
+        apply:
+          become: true
+        name: 'linux_disk_manager'
+
+#endregion --- [ Play: Configure The Hosts ] -------------------------------------------------- #
+
+#region ------ [ Play: RKE2 ] ----------------------------------------------------------------- #
+# One server initializes the cluster; the others join it one at a time through the load
+# balancer, so etcd grows a member at a time; the agents join once the control plane is whole.
+# The inventory orders hosts by instance id, so the initializing server is stable across runs.
+
+- name: 'PLAY | RKE2 Servers'
+  hosts: 'rancher_servers'
+  become: true
+  serial: 1
+  tags: ['products']
+  vars: &rke2_cluster
+    # One token per stack, in a controller file named by the load balancer it serves.
+    rke2_token: >-
+      {{ lookup('ansible.builtin.password',
+                '~/.ansible/rancher/' ~ (rancher_load_balancer_dns | hash('sha256')) ~ '.token',
+                chars=['ascii_letters', 'digits'], length=64) }}
+    rke2_version: 'v1.36.5+rke2r1'
+  roles:
+    - role: 'rke2'
+      vars:
+        rke2:
+          node_role: 'server'
+          server_url: >-
+            {{ (inventory_hostname == groups['rancher_servers'][0])
+               | ternary('', 'https://' ~ rancher_load_balancer_dns ~ ':9345') }}
+          tls_san: ["{{ rancher_load_balancer_dns }}"]
+          token: "{{ rke2_token }}"
+          version: "{{ rke2_version }}"
+
+- name: 'PLAY | RKE2 Agents'
+  hosts: 'rancher_agents'
+  become: true
+  tags: ['products']
+  vars: *rke2_cluster
+  roles:
+    - role: 'rke2'
+      vars:
+        rke2:
+          node_role: 'agent'
+          server_url: "https://{{ rancher_load_balancer_dns }}:9345"
+          token: "{{ rke2_token }}"
+          version: "{{ rke2_version }}"
+
+#endregion --- [ Play: RKE2 ] ----------------------------------------------------------------- #

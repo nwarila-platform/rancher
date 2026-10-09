@@ -1,0 +1,40 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/validate.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Guards on the merged configuration, run by the loader before any task file.
+#
+# ============================================================================================= #
+---
+- name: 'VALIDATE | Require A Pinned RKE2 Release'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: >-
+      rke2.version must name an RKE2 release such as 'v1.35.9+rke2r1'; got
+      '{{ config.version }}'.
+    quiet: true
+    that: config.version is match('^v1\.[0-9]+\.[0-9]+\+rke2r[0-9]+$')
+
+- name: 'VALIDATE | Require The Node Role'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: "rke2.node_role must be 'server' or 'agent'; got '{{ config.node_role }}'."
+    quiet: true
+    that: config.node_role in ['server', 'agent']
+
+- name: 'VALIDATE | Require The Cluster Token'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: 'rke2.token must be at least 32 characters.'
+    quiet: true
+    that: config.token | length >= 32
+
+# Only the initializing server may omit the join address: an agent without one has nothing to join.
+- name: 'VALIDATE | Require A Join Address On Agents'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: 'rke2.server_url must be https://<address>:9345 on an agent.'
+    quiet: true
+    that: >-
+      config.node_role == 'server'
+      or config.server_url is match('^https://[A-Za-z0-9.-]+:9345$')

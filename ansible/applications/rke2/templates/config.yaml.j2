@@ -1,0 +1,39 @@
+# Managed by the rke2 role; a local edit is overwritten on the next run.
+node-name: {{ inventory_hostname | to_json }}
+token: {{ config.token | to_json }}
+{% if config.server_url | length > 0 %}
+server: {{ config.server_url | to_json }}
+{% endif %}
+# CNTR-R2-000060: the CIS profile ('cis-1.23' is fatal on current releases).
+profile: 'cis'
+selinux: true
+kubelet-arg:
+  - 'protect-kernel-defaults=true'          # CNTR-R2-000940
+  - 'read-only-port=0'                      # CNTR-R2-000130
+  - 'authorization-mode=Webhook'            # CNTR-R2-000150
+  - 'anonymous-auth=false'                  # CNTR-R2-000110
+  - 'streaming-connection-idle-timeout=5m'  # CNTR-R2-000890
+{% if config.node_role == 'server' %}
+write-kubeconfig-mode: '0600'               # CNTR-R2-000520
+tls-san: {{ config.tls_san | to_json }}
+node-taint: {{ config.server_taints | to_json }}
+pod-security-admission-config-file: '{{ config.config_dir }}/rke2-pss-custom.yaml'  # CNTR-R2-001130
+kube-apiserver-arg:
+  - 'tls-min-version=VersionTLS12'          # CNTR-R2-000010
+  - 'tls-cipher-suites={{ config.tls_cipher_suites | join(",") }}'
+  - 'audit-policy-file={{ config.config_dir }}/audit-policy.yaml'  # CNTR-R2-000060
+  - 'audit-log-mode=blocking-strict'
+  - 'audit-log-maxage={{ config.audit_log_maxage }}'               # CNTR-R2-000320
+  - 'audit-log-maxbackup={{ config.audit_log_maxbackup }}'
+  - 'audit-log-maxsize={{ config.audit_log_maxsize }}'
+  - 'anonymous-auth=false'                  # CNTR-R2-000160
+  - 'authorization-mode=RBAC,Node'          # CNTR-R2-001270
+kube-controller-manager-arg:
+  - 'tls-min-version=VersionTLS12'          # CNTR-R2-000010
+  - 'tls-cipher-suites={{ config.tls_cipher_suites | join(",") }}'
+  - 'use-service-account-credentials=true'  # CNTR-R2-000030
+  - 'bind-address=127.0.0.1'                # CNTR-R2-000100
+kube-scheduler-arg:
+  - 'tls-min-version=VersionTLS12'          # CNTR-R2-000010
+  - 'tls-cipher-suites={{ config.tls_cipher_suites | join(",") }}'
+{% endif %}

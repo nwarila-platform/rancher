@@ -1,0 +1,339 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/present_redhat.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# One RKE2 node on the CIS RHEL 9 STIG image: the host prerequisites profile: cis refuses to
+# start without, the pinned RPMs, the STIG configuration, and a node that reports Ready.
+#
+# Everything the first start depends on is in place before the service is enabled: RKE2 writes
+# a permissive audit policy of its own when none exists, and exits on a kernel parameter that
+# does not match its profile.
+#
+# ============================================================================================= #
+---
+
+#region ------ [ Begin: Read The Host ] ------------------------------------------------------- #
+
+- name: 'BEGIN | Read The Host'
+  block:
+
+    - name: 'BEGIN | Read The Installed Services'
+      ansible.builtin.service_facts:
+
+#endregion --- [ Begin: Read The Host ] ------------------------------------------------------- #
+
+#region ------ [ Process: Prepare The Host ] -------------------------------------------------- #
+
+- name: 'PROCESS | Prepare The Host'
+  vars:
+    __unit__: "rke2-{{ config.node_role }}"
+  block:
+
+    #region ------ [ Process: Kernel Parameters ] ------------------------------------------- #
+    # The highest-sorting drop-in, so it wins over the image's own forwarding setting.
+    - name: 'PROCESS | Write The RKE2 Kernel Parameters'
+      register: '__rke2_sysctl__'
+      ansible.builtin.copy:
+        backup: false
+        content: |
+          # Managed by the rke2 role.
+          {% for key, value in config.sysctl | dictsort %}
+          {{ key }} = {{ value }}
+          {% endfor %}
+        dest: '/etc/sysctl.d/99-zz-rke2.conf'
+        force: true
+        group: 'root'
+        mode: '0644'
+        owner: 'root'
+
+    - name: 'PROCESS | Apply The Kernel Parameters'
+      when: __rke2_sysctl__ is changed
+      changed_when: true
+      ansible.builtin.command:
+        argv: ['sysctl', '--system']
+
+    #endregion --- [ Process: Kernel Parameters ] ------------------------------------------- #
+
+    #region ------ [ Process: The etcd Account ] -------------------------------------------- #
+    # profile: cis runs etcd as this account and exits when it is missing.
+    - name: 'PROCESS | Create The etcd Group'
+      when: config.node_role == 'server'
+      ansible.builtin.group:
+        name: 'etcd'
+        state: 'present'
+        system: true
+
+    - name: 'PROCESS | Create The etcd Account'
+      when: config.node_role == 'server'
+      ansible.builtin.user:
+        comment: 'etcd user'
+        create_home: false
+        group: 'etcd'
+        name: 'etcd'
+        shell: '/sbin/nologin'
+        state: 'present'
+        system: true
+
+    #endregion --- [ Process: The etcd Account ] -------------------------------------------- #
+
+    #region ------ [ Process: Network Interfaces ] ------------------------------------------ #
+    # NetworkManager must leave the CNI's interfaces alone, or it strips their routes.
+    - name: 'PROCESS | Exclude The CNI Interfaces From NetworkManager'
+      register: '__rke2_nm__'
+      ansible.builtin.copy:
+        backup: false
+        content: |
+          # Managed by the rke2 role.
+          [keyfile]
+          unmanaged-devices=interface-name:flannel*;interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:vxlan-v6.calico;interface-name:wireguard.cali;interface-name:wg-v6.cali
+        dest: '/etc/NetworkManager/conf.d/rke2-canal.conf'
+        force: true
+        group: 'root'
+        mode: '0644'
+        owner: 'root'
+
+    - name: 'PROCESS | Reload NetworkManager'
+      when: __rke2_nm__ is changed
+      ansible.builtin.systemd_service:
+        name: 'NetworkManager'
+        state: 'reloaded'
+
+    - name: 'PROCESS | Stop nm-cloud-setup'
+      when: "'nm-cloud-setup.service' in ansible_facts.services"
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "{{ item }}"
+        state: 'stopped'
+      loop: ['nm-cloud-setup.timer', 'nm-cloud-setup.service']
+
+    #endregion --- [ Process: Network Interfaces ] ------------------------------------------ #
+
+    #region ------ [ Process: Host Firewall ] ----------------------------------------------- #
+    # RKE2 and Rancher both require the host firewall off: the CIS image's own nftables table drops
+    # every forwarded packet (pod traffic) and admits only SSH, and firewalld reloads disturb the
+    # CNI's rules. The security groups are the network boundary (dependencies/aws/estate.yml,
+    # terraform/aws.tfvars). Documented STIG exception: RHEL-09-251010.
+    - name: 'PROCESS | Stop And Mask Firewalld'
+      when: "'firewalld.service' in ansible_facts.services"
+      ansible.builtin.systemd_service:
+        enabled: false
+        masked: true
+        name: 'firewalld'
+        state: 'stopped'
+
+    # Stopping the unit flushes the ruleset it loaded, before RKE2 has written any of its own.
+    - name: 'PROCESS | Stop And Disable The Image Nftables Ruleset'
+      when: "'nftables.service' in ansible_facts.services"
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: 'nftables'
+        state: 'stopped'
+
+    # rc-contract: 0 = the image's table is still loaded, 1 = it is gone.
+    - name: 'PROCESS | Read Whether The Image Filter Table Remains'
+      changed_when: false
+      failed_when: __rke2_image_table__.rc not in [0, 1]
+      register: '__rke2_image_table__'
+      ansible.builtin.command:
+        argv: ['nft', 'list', 'table', 'inet', 'filter']
+
+    - name: 'PROCESS | Remove The Image Filter Table'
+      when: __rke2_image_table__.rc == 0
+      changed_when: true
+      ansible.builtin.command:
+        argv: ['nft', 'delete', 'table', 'inet', 'filter']
+
+    #endregion --- [ Process: Host Firewall ] ----------------------------------------------- #
+
+    #region ------ [ Process: Application Whitelisting ] ------------------------------------ #
+    - name: 'PROCESS | Allow Execution From The RKE2 Trees'
+      register: '__rke2_fapolicyd__'
+      ansible.builtin.copy:
+        backup: false
+        content: |
+          # Managed by the rke2 role: RKE2 unpacks its runtime and container images here.
+          {% for dir in config.fapolicyd_trusted_dirs %}
+          allow perm=any all : dir={{ dir }}
+          {% endfor %}
+        dest: '/etc/fapolicyd/rules.d/80-rke2.rules'
+        force: true
+        group: 'fapolicyd'
+        mode: '0644'
+        owner: 'root'
+
+    - name: 'PROCESS | Compile The fapolicyd Rules'
+      when: __rke2_fapolicyd__ is changed
+      changed_when: true
+      ansible.builtin.command:
+        argv: ['fagenrules', '--load']
+
+    # RHEL-09-433010/015: the image ships it installed but disabled; the STIG requires it running.
+    - name: 'PROCESS | Run fapolicyd'
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: 'fapolicyd'
+        state: "{{ (__rke2_fapolicyd__ is changed) | ternary('restarted', 'started') }}"
+
+    #endregion --- [ Process: Application Whitelisting ] ------------------------------------ #
+
+#endregion --- [ Process: Prepare The Host ] -------------------------------------------------- #
+
+#region ------ [ Process: Install RKE2 ] ------------------------------------------------------ #
+
+- name: 'PROCESS | Install RKE2'
+  vars:
+    __minor__: "{{ config.version | regex_replace('^v([0-9]+\\.[0-9]+)\\..*$', '\\1') }}"
+    __rpm_version__: "{{ config.version | regex_replace('^v', '') | replace('+', '~') }}"
+  block:
+
+    - name: 'PROCESS | Add The RKE2 Common Repository'
+      ansible.builtin.yum_repository:
+        baseurl: "https://rpm.rancher.io/rke2/{{ config.channel }}/common/centos/{{ ansible_facts['distribution_major_version'] }}/noarch"
+        description: 'Rancher RKE2 Common'
+        enabled: true
+        file: 'rancher-rke2'
+        gpgcheck: true
+        gpgkey: "{{ config.gpg_key_url }}"
+        name: 'rancher-rke2-common'
+        repo_gpgcheck: true
+        state: 'present'
+
+    - name: 'PROCESS | Add The RKE2 Release Repository'
+      ansible.builtin.yum_repository:
+        baseurl: "https://rpm.rancher.io/rke2/{{ config.channel }}/{{ __minor__ }}/centos/{{ ansible_facts['distribution_major_version'] }}/x86_64"
+        description: "Rancher RKE2 {{ __minor__ }}"
+        enabled: true
+        file: 'rancher-rke2'
+        gpgcheck: true
+        gpgkey: "{{ config.gpg_key_url }}"
+        name: "rancher-rke2-{{ __minor__ }}"
+        repo_gpgcheck: true
+        state: 'present'
+
+    - name: 'PROCESS | Install The Pinned RKE2 Packages'
+      ansible.builtin.dnf:
+        name: ["rke2-{{ config.node_role }}-{{ __rpm_version__ }}"]
+        state: 'present'
+
+#endregion --- [ Process: Install RKE2 ] ------------------------------------------------------ #
+
+#region ------ [ Process: Configure And Start RKE2 ] ------------------------------------------ #
+
+- name: 'PROCESS | Configure And Start RKE2'
+  vars:
+    __unit__: "rke2-{{ config.node_role }}"
+  block:
+
+    - name: 'PROCESS | Create The Configuration Directory'
+      ansible.builtin.file:
+        group: 'root'
+        mode: '0700'
+        owner: 'root'
+        path: "{{ config.config_dir }}"
+        state: 'directory'
+
+    # CNTR-R2-000060: the policy exists before the first start, or RKE2 writes 'level: None'.
+    - name: 'PROCESS | Write The Server Policies'
+      when: config.node_role == 'server'
+      register: '__rke2_policies__'
+      ansible.builtin.template:
+        backup: false
+        dest: "{{ config.config_dir }}/{{ item }}"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: "{{ item }}.j2"
+      loop: ['audit-policy.yaml', 'rke2-pss-custom.yaml']
+
+    - name: 'PROCESS | Write The RKE2 Configuration'
+      register: '__rke2_config__'
+      ansible.builtin.template:
+        backup: false
+        dest: "{{ config.config_dir }}/config.yaml"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: 'config.yaml.j2'
+
+    - name: 'PROCESS | Enable And Start RKE2'
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "{{ __unit__ }}"
+        no_block: true
+        state: >-
+          {{ (__rke2_config__ is changed or __rke2_policies__ is changed)
+             | ternary('restarted', 'started') }}
+
+    # measured: 2026-10-09 -- a first server pulls its images and initializes etcd in minutes.
+    - name: 'PROCESS | Wait For The Kubelet To Report Healthy'
+      changed_when: false
+      register: '__rke2_kubelet__'
+      retries: 90
+      delay: 10
+      until: __rke2_kubelet__.rc == 0
+      ansible.builtin.command:
+        argv: ['curl', '-fsS', '--max-time', '5', 'http://127.0.0.1:10248/healthz']
+
+#endregion --- [ Process: Configure And Start RKE2 ] ------------------------------------------ #
+
+#region ------ [ Process: Restrict The RKE2 Tree ] -------------------------------------------- #
+# CNTR-R2-000520. RKE2 creates these 0755 as it starts (measured 2026-10-09), so they are
+# restricted once it is up; an upgrade unpacks a new data directory, which the next run restricts.
+
+- name: 'PROCESS | Restrict The RKE2 Tree'
+  block:
+
+    - name: 'BEGIN | Read The RKE2 Binaries'
+      register: '__rke2_binaries__'
+      ansible.builtin.find:
+        file_type: 'file'
+        follow: true
+        paths: ["{{ config.data_dir }}/bin"]
+
+    - name: 'PROCESS | Restrict The RKE2 Binaries'
+      ansible.builtin.file:
+        mode: '0750'
+        path: "{{ item.path }}"
+      loop: "{{ __rke2_binaries__.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: 'PROCESS | Restrict The RKE2 Directories'
+      ansible.builtin.file:
+        mode: "{{ item.mode }}"
+        path: "{{ config.data_dir }}/{{ item.path }}"
+        state: 'directory'
+      loop: "{{ [{'path': 'data', 'mode': '0750'}, {'path': 'agent/etc', 'mode': '0700'},
+                 {'path': 'agent/pod-manifests', 'mode': '0700'}]
+                + ((config.node_role == 'server')
+                   | ternary([{'path': 'server/manifests', 'mode': '0750'},
+                              {'path': 'server/logs', 'mode': '0750'}], [])) }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+#endregion --- [ Process: Restrict The RKE2 Tree ] -------------------------------------------- #
+
+#region ------ [ End: Prove The Node ] -------------------------------------------------------- #
+
+- name: 'END | Prove The Node'
+  block:
+
+    - name: 'END | Wait For This Server To Report Ready'
+      when: config.node_role == 'server'
+      changed_when: false
+      register: '__rke2_ready__'
+      retries: 60
+      delay: 10
+      until: __rke2_ready__.stdout == 'True'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.data_dir }}/bin/kubectl"
+          - "--kubeconfig={{ config.config_dir }}/rke2.yaml"
+          - 'get'
+          - 'node'
+          - "{{ inventory_hostname }}"
+          - "--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}"
+
+#endregion --- [ End: Prove The Node ] -------------------------------------------------------- #

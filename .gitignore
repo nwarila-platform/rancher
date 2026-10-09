@@ -19,7 +19,15 @@
 !/.github/
 !/.github/workflows/
 !/ansible/
+!/ansible/applications/
+!/ansible/applications/rke2/
+!/ansible/applications/rke2/defaults/
+!/ansible/applications/rke2/meta/
+!/ansible/applications/rke2/tasks/
+!/ansible/applications/rke2/templates/
+!/ansible/applications/rke2/vars/
 !/ansible/inventory/
+!/ansible/playbooks/
 !/dependencies/
 !/dependencies/aws/
 !/dependencies/aws/policies/
@@ -51,8 +59,19 @@
 !/.github/workflows/quality.yml
 
 # --- [ allowed: the ansible tree ] ---------------------------------------------------------- #
+!/ansible/applications/rke2/README.md
+!/ansible/applications/rke2/defaults/main.yml
+!/ansible/applications/rke2/meta/main.yml
+!/ansible/applications/rke2/tasks/main.yml
+!/ansible/applications/rke2/tasks/present_redhat.yml
+!/ansible/applications/rke2/tasks/validate.yml
+!/ansible/applications/rke2/templates/audit-policy.yaml.j2
+!/ansible/applications/rke2/templates/config.yaml.j2
+!/ansible/applications/rke2/templates/rke2-pss-custom.yaml.j2
+!/ansible/applications/rke2/vars/redhat.yml
 !/ansible/inventory/README.md
 !/ansible/inventory/aws_ec2.yml
+!/ansible/playbooks/rancher-aws.yml
 
 # --- [ allowed: dependency declarations ] -------------------------------------------------- #
 !/dependencies/MANIFEST.sha256

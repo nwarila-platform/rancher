@@ -1,0 +1,125 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/defaults/main.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Defaults for the rke2 role, merged by the v3 loader into rke2_running (tasks see it as
+# config). Deployment-specific values -- the node's role, the join address, the cluster token
+# and the load balancer name -- are declared empty and supplied by the playbook.
+#
+# Settings that satisfy a DISA STIG rule name it: CNTR-R2-* is the RGS RKE2 STIG V2R7,
+# RHEL-08-* the RHEL 8 STIG V2R9.
+#
+# ============================================================================================= #
+---
+rke2_defaults:
+
+  #region ------ [ Installer ] ---------------------------------------------------------------- #
+  # The RKE2 release, as RKE2 names it. The RPM version is derived from it
+  # ('v1.36.5+rke2r1' -> '1.36.5~rke2r1').
+  version: ''
+  # The RPM channel at rpm.rancher.io; 'stable' carries every published patch of each minor.
+  channel: 'stable'
+  # The signing key both repositories are verified against (RHEL-08-010370: gpgcheck on).
+  gpg_key_url: 'https://rpm.rancher.io/public.key'
+  #endregion --- [ Installer ] ---------------------------------------------------------------- #
+
+  #region ------ [ Node ] --------------------------------------------------------------------- #
+  # 'server' runs etcd and the control plane; 'agent' runs workloads.
+  node_role: ''
+  # Empty on the server that initializes the cluster; every other node joins through it.
+  server_url: ''
+  # The shared join secret every node presents. Fixed rather than generated, so a restore
+  # does not depend on reading it back off the first server.
+  token: ''
+  # Extra names the API and supervisor certificates are valid for (the load balancer).
+  tls_san: []
+  # Servers carry this so only critical add-ons schedule there: the control plane stays apart
+  # from Rancher and anything else the agents run.
+  server_taints: ['CriticalAddonsOnly=true:NoExecute']
+  #endregion --- [ Node ] --------------------------------------------------------------------- #
+
+  #region ------ [ Layout ] ------------------------------------------------------------------- #
+  config_dir: '/etc/rancher/rke2'
+  data_dir: '/var/lib/rancher/rke2'
+  #endregion --- [ Layout ] ------------------------------------------------------------------- #
+
+  #region ------ [ STIG ] --------------------------------------------------------------------- #
+  # CNTR-R2-000010: the control plane speaks TLS 1.2+ with exactly these suites.
+  tls_cipher_suites:
+    - 'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256'
+    - 'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305'
+    - 'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384'
+  # CNTR-R2-000320: days of API audit log kept.
+  audit_log_maxage: 30
+  audit_log_maxbackup: 10
+  audit_log_maxsize: 100
+  # CNTR-R2-001130: restricted by default. The exemptions are Rancher's published list for a
+  # restricted cluster (ranchermanager.docs.rancher.com .../psa-restricted-exemptions).
+  pss_exempt_namespaces:
+    - 'calico-apiserver'
+    - 'calico-system'
+    - 'cattle-alerting'
+    - 'cattle-capi-system'
+    - 'cattle-csp-adapter-system'
+    - 'cattle-elemental-system'
+    - 'cattle-epinio-system'
+    - 'cattle-externalip-system'
+    - 'cattle-fleet-local-system'
+    - 'cattle-fleet-system'
+    - 'cattle-gatekeeper-system'
+    - 'cattle-global-data'
+    - 'cattle-global-nt'
+    - 'cattle-impersonation-system'
+    - 'cattle-istio'
+    - 'cattle-istio-system'
+    - 'cattle-logging'
+    - 'cattle-logging-system'
+    - 'cattle-monitoring-system'
+    - 'cattle-neuvector-system'
+    - 'cattle-prometheus'
+    - 'cattle-provisioning-capi-system'
+    - 'cattle-resources-system'
+    - 'cattle-sriov-system'
+    - 'cattle-system'
+    - 'cattle-turtles-system'
+    - 'cattle-ui-plugin-system'
+    - 'cattle-windows-gmsa-system'
+    - 'cert-manager'
+    - 'cis-operator-system'
+    - 'compliance-operator-system'
+    - 'fleet-default'
+    - 'fleet-local'
+    - 'istio-system'
+    - 'kube-node-lease'
+    - 'kube-public'
+    - 'kube-system'
+    - 'longhorn-system'
+    - 'rancher-alerting-drivers'
+    - 'rancher-compliance-system'
+    - 'security-scan'
+    - 'sr-operator-system'
+    - 'tigera-operator'
+    - 'traefik'
+  #endregion --- [ STIG ] --------------------------------------------------------------------- #
+
+  #region ------ [ Host ] --------------------------------------------------------------------- #
+  # profile: cis refuses to start unless these hold (rke2-cis-sysctl.conf), and the kubelet's
+  # protect-kernel-defaults (CNTR-R2-000940) checks the two key limits.
+  # net.ipv4.ip_forward is a documented RHEL-08-040260 exception: a Kubernetes node routes pod
+  # traffic by definition.
+  sysctl:
+    kernel.keys.root_maxbytes: 25000000
+    kernel.keys.root_maxkeys: 1000000
+    kernel.panic: 10
+    kernel.panic_on_oops: 1
+    net.ipv4.ip_forward: 1
+    vm.overcommit_memory: 1
+    vm.panic_on_oom: 0
+  # fapolicyd denies execution of anything the RPM database does not list; RKE2 unpacks its
+  # runtime, CNI and container rootfs under these trees.
+  fapolicyd_trusted_dirs:
+    - '/var/lib/rancher/'
+    - '/opt/cni/'
+    - '/run/k3s/'
+    - '/var/lib/kubelet/'
+  #endregion --- [ Host ] --------------------------------------------------------------------- #

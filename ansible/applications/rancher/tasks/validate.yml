@@ -1,0 +1,28 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/validate.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Guards on the merged configuration, run by the loader before any task file.
+#
+# ============================================================================================= #
+---
+- name: 'VALIDATE | Require A Pinned Rancher Release'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: "rancher.version must be a release such as '2.15.2'; got '{{ config.version }}'."
+    quiet: true
+    that: config.version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+
+- name: 'VALIDATE | Require The Rancher Hostname'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: 'rancher.hostname must be a DNS name.'
+    quiet: true
+    that: config.hostname is match('^[A-Za-z0-9.-]+$')
+
+- name: 'VALIDATE | Require The Bootstrap Password'
+  when: (state | default('present') | string | lower | trim) in ['present']
+  ansible.builtin.assert:
+    fail_msg: 'rancher.bootstrap_password must be at least 12 characters.'
+    quiet: true
+    that: config.bootstrap_password | length >= 12

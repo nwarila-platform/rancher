@@ -1,0 +1,165 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/tasks/present_redhat.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Rancher Manager on the RKE2 cluster this server belongs to. The ingress certificate and the
+# private CA that signed it are written to secrets before the chart is handed over, because the
+# chart's ingress reads them from its first reconcile (V-257292). RKE2's helm-controller owns
+# the release from then on: the role writes a HelmChart and waits for Rancher to answer.
+#
+# ============================================================================================= #
+---
+
+#region ------ [ Begin: Read The Cluster ] ---------------------------------------------------- #
+
+- name: 'BEGIN | Read The Cluster'
+  block:
+
+    # rc-contract: 0 = the secret exists, 1 = it does not; anything else is a broken cluster.
+    - name: 'BEGIN | Read Whether The Ingress Certificate Exists'
+      changed_when: false
+      failed_when: __rancher_tls_secret__.rc not in [0, 1]
+      register: '__rancher_tls_secret__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - '--namespace'
+          - "{{ config.namespace }}"
+          - 'get'
+          - 'secret'
+          - 'tls-rancher-ingress'
+          - '--ignore-not-found=false'
+
+#endregion --- [ Begin: Read The Cluster ] ---------------------------------------------------- #
+
+#region ------ [ Process: Issue The Ingress Certificate ] ------------------------------------- #
+# Once per cluster: the CA key signs one certificate and is then discarded with the temp dir,
+# so nothing on disk can mint another.
+
+- name: 'PROCESS | Issue The Ingress Certificate'
+  when: __rancher_tls_secret__.rc == 1
+  block:
+
+    - name: 'PROCESS | Create The Rancher Namespace'
+      changed_when: "'created' in __rancher_ns__.stdout"
+      register: '__rancher_ns__'
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail &&
+          {{ config.kubectl }} --kubeconfig={{ config.kubeconfig }}
+          create namespace {{ config.namespace }} --dry-run=client --output=yaml
+          | {{ config.kubectl }} --kubeconfig={{ config.kubeconfig }} apply --filename=-
+        executable: '/bin/bash'
+
+    - name: 'PROCESS | Sign The Ingress Certificate With A Private CA'
+      changed_when: true
+      ansible.builtin.shell:
+        chdir: "{{ __temp_dir__.path }}"
+        cmd: |
+          set -euo pipefail
+          umask 077
+          openssl ecparam -name prime256v1 -genkey -noout -out ca.key
+          openssl req -x509 -new -key ca.key -sha256 -days 3650 \
+            -subj '/CN={{ config.ca_common_name }}' \
+            -addext 'basicConstraints=critical,CA:TRUE' \
+            -addext 'keyUsage=critical,keyCertSign,cRLSign' -out ca.crt
+          openssl ecparam -name prime256v1 -genkey -noout -out tls.key
+          openssl req -new -key tls.key -subj '/CN={{ config.hostname }}' -out tls.csr
+          printf '%s\n' 'subjectAltName=DNS:{{ config.hostname }}' \
+            'extendedKeyUsage=serverAuth' 'keyUsage=critical,digitalSignature' > tls.ext
+          openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -days {{ config.certificate_days }} -sha256 -extfile tls.ext -out tls.crt
+          {{ config.kubectl }} --kubeconfig={{ config.kubeconfig }} --namespace={{ config.namespace }} \
+            create secret tls tls-rancher-ingress --cert=tls.crt --key=tls.key
+          {{ config.kubectl }} --kubeconfig={{ config.kubeconfig }} --namespace={{ config.namespace }} \
+            create secret generic tls-ca --from-file=cacerts.pem=ca.crt
+          rm -f ca.key tls.key tls.csr tls.ext ca.srl
+        executable: '/bin/bash'
+
+#endregion --- [ Process: Issue The Ingress Certificate ] ------------------------------------- #
+
+#region ------ [ Process: Install Rancher ] --------------------------------------------------- #
+
+- name: 'PROCESS | Install Rancher'
+  block:
+
+    - name: 'PROCESS | Hand The Rancher Chart To The Helm Controller'
+      ansible.builtin.template:
+        backup: false
+        dest: "{{ config.manifests_dir }}/rancher.yaml"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: 'rancher-helmchart.yaml.j2'
+
+#endregion --- [ Process: Install Rancher ] --------------------------------------------------- #
+
+#region ------ [ End: Prove Rancher ] --------------------------------------------------------- #
+
+- name: 'END | Prove Rancher'
+  block:
+
+    # measured: 2026-10-09 -- the chart install, image pulls and three replicas take minutes.
+    - name: 'END | Wait For Every Rancher Replica'
+      changed_when: false
+      register: '__rancher_rollout__'
+      retries: 60
+      delay: 15
+      until: __rancher_rollout__.rc == 0
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ config.namespace }}"
+          - 'rollout'
+          - 'status'
+          - 'deployment/rancher'
+          - '--timeout=10s'
+
+    # Through the load balancer, by name, against the private CA: what a user's browser sees.
+    - name: 'END | Read The Rancher CA'
+      changed_when: false
+      register: '__rancher_ca__'
+      ansible.builtin.command:
+        argv:
+          - "{{ config.kubectl }}"
+          - "--kubeconfig={{ config.kubeconfig }}"
+          - "--namespace={{ config.namespace }}"
+          - 'get'
+          - 'secret'
+          - 'tls-ca'
+          - "--output=jsonpath={.data.cacerts\\.pem}"
+
+    # Into the loader's per-run temp directory, which it removes: no host state changes.
+    - name: 'END | Stage The Rancher CA'
+      changed_when: false
+      ansible.builtin.copy:
+        backup: false
+        content: "{{ __rancher_ca__.stdout | b64decode }}"
+        dest: "{{ __temp_dir__.path }}/cacerts.pem"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+
+    - name: 'END | Require Rancher To Answer Through The Load Balancer'
+      changed_when: false
+      register: '__rancher_ping__'
+      retries: 30
+      delay: 10
+      until: __rancher_ping__.stdout == 'pong'
+      ansible.builtin.command:
+        argv:
+          - 'curl'
+          - '--fail'
+          - '--silent'
+          - '--show-error'
+          - '--max-time'
+          - '10'
+          - '--cacert'
+          - "{{ __temp_dir__.path }}/cacerts.pem"
+          - "https://{{ config.hostname }}/ping"
+
+#endregion --- [ End: Prove Rancher ] --------------------------------------------------------- #

@@ -1,0 +1,28 @@
+# Managed by the rancher role; RKE2's helm-controller installs and upgrades from it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rancher
+  namespace: kube-system
+spec:
+  repo: {{ config.chart_repo | to_json }}
+  chart: rancher
+  version: {{ config.version | to_json }}
+  targetNamespace: {{ config.namespace | to_json }}
+  createNamespace: true
+  valuesContent: |-
+    hostname: {{ config.hostname | to_json }}
+    replicas: {{ config.replicas }}
+    bootstrapPassword: {{ config.bootstrap_password | to_json }}
+    agentTLSMode: strict
+    # V-257292: a private CA's certificate, from the tls-rancher-ingress and tls-ca secrets.
+    privateCA: true
+    ingress:
+      ingressClassName: {{ config.ingress_class | to_json }}
+      tls:
+        source: secret
+    # V-252844
+    auditLog:
+      enabled: true
+      level: {{ config.audit_level }}
+      destination: sidecar

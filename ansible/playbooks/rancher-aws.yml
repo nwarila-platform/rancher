@@ -153,3 +153,25 @@
           version: "{{ rke2_version }}"
 
 #endregion --- [ Play: RKE2 ] ----------------------------------------------------------------- #
+
+#region ------ [ Play: Rancher ] -------------------------------------------------------------- #
+# Rancher Manager on the cluster, from the server that initialized it: the role hands RKE2's
+# helm-controller a HelmChart and waits for Rancher to answer through the load balancer.
+
+- name: 'PLAY | Rancher'
+  hosts: 'rancher_servers[0]'
+  become: true
+  tags: ['products']
+  roles:
+    - role: 'rancher'
+      vars:
+        rancher:
+          hostname: "{{ rancher_load_balancer_dns }}"
+          version: '2.15.2'
+          # One password per stack, in a controller file named by the load balancer it serves.
+          bootstrap_password: >-
+            {{ lookup('ansible.builtin.password',
+                      '~/.ansible/rancher/' ~ (rancher_load_balancer_dns | hash('sha256'))
+                      ~ '.bootstrap', chars=['ascii_letters', 'digits'], length=32) }}
+
+#endregion --- [ Play: Rancher ] -------------------------------------------------------------- #

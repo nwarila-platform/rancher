@@ -20,6 +20,12 @@
 !/.github/workflows/
 !/ansible/
 !/ansible/applications/
+!/ansible/applications/rancher/
+!/ansible/applications/rancher/defaults/
+!/ansible/applications/rancher/meta/
+!/ansible/applications/rancher/tasks/
+!/ansible/applications/rancher/templates/
+!/ansible/applications/rancher/vars/
 !/ansible/applications/rke2/
 !/ansible/applications/rke2/defaults/
 !/ansible/applications/rke2/meta/
@@ -59,6 +65,14 @@
 !/.github/workflows/quality.yml
 
 # --- [ allowed: the ansible tree ] ---------------------------------------------------------- #
+!/ansible/applications/rancher/README.md
+!/ansible/applications/rancher/defaults/main.yml
+!/ansible/applications/rancher/meta/main.yml
+!/ansible/applications/rancher/tasks/main.yml
+!/ansible/applications/rancher/tasks/present_redhat.yml
+!/ansible/applications/rancher/tasks/validate.yml
+!/ansible/applications/rancher/templates/rancher-helmchart.yaml.j2
+!/ansible/applications/rancher/vars/redhat.yml
 !/ansible/applications/rke2/README.md
 !/ansible/applications/rke2/defaults/main.yml
 !/ansible/applications/rke2/meta/main.yml

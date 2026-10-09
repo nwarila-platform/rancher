@@ -1,0 +1,47 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/defaults/main.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Defaults for the rancher role, merged by the v3 loader into rancher_running (tasks see it as
+# config). The hostname and the bootstrap password are deployment-specific and supplied by the
+# playbook. The role runs on one RKE2 server: it hands RKE2's helm-controller a HelmChart.
+#
+# Settings that satisfy a DISA STIG rule name it: V-2528xx / V-257292 are the RGS Rancher
+# Multi-Cluster Manager STIG V2R2.
+#
+# ============================================================================================= #
+---
+rancher_defaults:
+
+  #region ------ [ Chart ] -------------------------------------------------------------------- #
+  # Rancher's release, and the repository its chart is published to.
+  version: ''
+  chart_repo: 'https://releases.rancher.com/server-charts/stable'
+  namespace: 'cattle-system'
+  replicas: 3
+  # RKE2 v1.36's default controller; named so Rancher never depends on a default class.
+  ingress_class: 'traefik'
+  #endregion --- [ Chart ] -------------------------------------------------------------------- #
+
+  #region ------ [ Deployment ] --------------------------------------------------------------- #
+  # The name Rancher is reached by: the load balancer's DNS name.
+  hostname: ''
+  # The first administrator's password. Rancher stores it; the role never reads it back.
+  bootstrap_password: ''
+  #endregion --- [ Deployment ] --------------------------------------------------------------- #
+
+  #region ------ [ STIG ] --------------------------------------------------------------------- #
+  # V-252844: API audit at level 2 (request bodies) or higher.
+  audit_level: 2
+  # V-257292: the ingress certificate comes from a secret signed by a private CA, not
+  # Rancher's self-signed issuer. The bed's CA is generated here; a DoD-issued certificate
+  # replaces it where one exists.
+  ca_common_name: 'Rancher Private CA'
+  certificate_days: 397
+  #endregion --- [ STIG ] --------------------------------------------------------------------- #
+
+  #region ------ [ Layout ] ------------------------------------------------------------------- #
+  kubectl: '/var/lib/rancher/rke2/bin/kubectl'
+  kubeconfig: '/etc/rancher/rke2/rke2.yaml'
+  manifests_dir: '/var/lib/rancher/rke2/server/manifests'
+  #endregion --- [ Layout ] ------------------------------------------------------------------- #

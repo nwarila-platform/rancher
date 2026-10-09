@@ -1,0 +1,25 @@
+# ============================================================================================= #
+# File: '{{ role_path }}/meta/main.yml'
+# --- [ Description ] ------------------------------------------------------------------------- #
+#
+# Role metadata for rancher. defaults/main.yml documents the merged configuration, and
+# tasks/validate.yml enforces its guards.
+#
+# ============================================================================================= #
+---
+galaxy_info:
+  role_name: 'rancher'
+  namespace: 'nwarila_platform'
+  author: 'nwarila-platform'
+  description: >-
+    Rancher Manager on an RKE2 cluster, installed through RKE2's helm-controller and configured
+    to the RGS Rancher Multi-Cluster Manager STIG.
+  license: 'MIT'
+  min_ansible_version: '2.21'
+  platforms:
+    - name: 'EL'
+      versions:
+        - '9'
+  galaxy_tags: ['rhel', 'stig', 'rancher', 'kubernetes']
+
+dependencies: []
